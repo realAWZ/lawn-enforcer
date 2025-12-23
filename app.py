@@ -10,7 +10,9 @@ st.markdown("### 🌎 Global Weather Command")
 
 # --- 1. SETUP DEFAULTS ---
 api_success = False
-temp_val, wind_val, rain_val, snow_depth, past_rain = 32, 5, 0.0, 0.0, 0.0
+temp_val, wind_val, rain_val, snow_depth, past_rain, wind_gusts = 32, 5, 0.0, 0.0, 0.0, 0.0
+pollen_status = "Low"
+max_pollen_val = 0
 
 # --- 2. SMART LOCATION SEARCH ---
 st.info("🔎 Search by **City Name** (e.g., Newton) or **Zip Code**")
@@ -43,22 +45,38 @@ if search_query:
             lat = final_data["latitude"]
             lon = final_data["longitude"]
             
-            # Get Weather Data
-            w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,rain,wind_speed_10m,snow_depth&daily=precipitation_sum&timezone=auto&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch"
-            
+            # 1. WEATHER API
+            w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,rain,wind_speed_10m,wind_gusts_10m,snow_depth&daily=precipitation_sum&timezone=auto&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch"
             w_res = requests.get(w_url).json()
             
-            # Parse Data
+            # 2. AIR QUALITY API (For Pollen)
+            p_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,olive_pollen,ragweed_pollen&timezone=auto"
+            p_res = requests.get(p_url).json()
+
+            # Parse Weather
             current = w_res['current']
             temp_val = current['temperature_2m']
             wind_val = current['wind_speed_10m']
+            wind_gusts = current['wind_gusts_10m']
             rain_val = current['rain']
-            snow_depth = current['snow_depth'] # In meters
+            snow_depth = current['snow_depth'] # Meters
             
-            # Parse Past 24h Rain
             if 'daily' in w_res and 'precipitation_sum' in w_res['daily']:
                 past_rain = w_res['daily']['precipitation_sum'][0]
-            
+
+            # Parse Pollen (Find the highest offender)
+            if 'current' in p_res:
+                p_data = p_res['current']
+                # Get all pollen types
+                pollens = [
+                    p_data.get('alder_pollen', 0),
+                    p_data.get('birch_pollen', 0),
+                    p_data.get('grass_pollen', 0),
+                    p_data.get('ragweed_pollen', 0)
+                ]
+                # Find the maximum pollen count today
+                max_pollen_val = max(pollens) if pollens else 0
+
             api_success = True
             
         else:
@@ -69,12 +87,12 @@ if search_query:
 
 # --- 3. AUTO-CALCULATE CONDITIONS ---
 ground_status = "Unknown"
-leaf_alert = False
+leaf_status = "None"
+pollen_alert = False
 
 if api_success:
-    # A. Check for Snow/Rain
+    # A. Ground Status
     snow_inches = snow_depth * 39.37 
-    
     if snow_inches > 0.5:
         ground_status = "Snow Covered ❄️"
     elif rain_val > 0.01:
@@ -86,11 +104,21 @@ if api_success:
     else:
         ground_status = "Bone Dry ☀️"
 
-    # B. Check for LEAF SEASON (Auto-Date Check)
+    # B. Leaf Status (Tiered)
     current_month = datetime.now().month
-    # If it is Oct (10), Nov (11), or Dec (12)
-    if current_month in [10, 11, 12]:
-        leaf_alert = True
+    if current_month in [10, 11]:
+        leaf_status = "Season"
+        if wind_gusts > 15 or past_rain > 0.2:
+            leaf_status = "Active Fall"
+
+    # C. Pollen Status
+    if max_pollen_val > 50: # Threshold for "Moderate/High"
+        pollen_alert = True
+        pollen_status = "HIGH 🔴"
+    elif max_pollen_val > 20:
+        pollen_status = "Medium 🟡"
+    else:
+        pollen_status = "Low 🟢"
 
 # --- 4. DASHBOARD ---
 if api_success:
@@ -101,13 +129,17 @@ if api_success:
     col1.metric("🌡️ Temp", f"{temp_val}°F")
     col2.metric("🌬️ Wind", f"{wind_val} mph")
     col3.metric("🌧️ Rain (24h)", f"{past_rain}\"")
-    col4.metric("🏔️ Snow", f"{round(snow_inches, 1)}\"")
+    col4.metric("🦠 Pollen", f"{pollen_status}")
 
-    # Display Auto-Detected Conditions
     st.info(f"🚜 **Ground Condition:** {ground_status}")
     
-    if leaf_alert:
-        st.warning("🍂 **SEASONAL ALERT:** High probability of heavy leaf fall detected.")
+    if leaf_status == "Active Fall":
+         st.warning("🍂 **SATELLITE ALERT:** High winds detected. Active leaf fall.")
+    elif leaf_status == "Season":
+         st.caption("🍂 **SEASONAL:** Leaf season. Watch for hidden rocks.")
+         
+    if pollen_alert:
+        st.warning("😷 **BIOHAZARD:** High Pollen Count detected.")
 
 # --- 5. LOGIC ENGINE ---
 if api_success: 
@@ -143,11 +175,19 @@ if api_success:
         status = "CAUTION"
         reasons.append("⚠️ MOISTURE: Ground is damp. Check for clumping.")
 
-    # 5. Leaf Logic (The New Feature)
-    if leaf_alert and status != "NO GO":
-        # If we are good to go, but it's leaf season, downgrade to CAUTION
+    # 5. Leaf Logic
+    if status != "NO GO":
+        if leaf_status == "Active Fall":
+            status = "CAUTION"
+            reasons.append("🍂 LEAF ALERT: High winds/rain causing leaf accumulation.")
+        elif leaf_status == "Season":
+            status = "CAUTION"
+            reasons.append("🍂 LEAF SEASON: Watch for hidden rocks/roots.")
+
+    # 6. Pollen Logic (New)
+    if status != "NO GO" and pollen_alert:
         status = "CAUTION"
-        reasons.append("🍂 LEAVES: Visibility of roots/rocks reduced. Proceed with caution.")
+        reasons.append("😷 POLLEN: High count detected. N95 Mask or Eye Protection recommended.")
 
     # --- 6. VERDICT ---
     st.subheader("MISSION STATUS:")
