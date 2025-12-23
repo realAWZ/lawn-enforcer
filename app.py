@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+from datetime import datetime
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Lawn Enforcer", page_icon="🚜", layout="centered")
@@ -9,7 +10,6 @@ st.markdown("### 🌎 Global Weather Command")
 
 # --- 1. SETUP DEFAULTS ---
 api_success = False
-# We add variables for snow and past rain
 temp_val, wind_val, rain_val, snow_depth, past_rain = 32, 5, 0.0, 0.0, 0.0
 
 # --- 2. SMART LOCATION SEARCH ---
@@ -43,21 +43,20 @@ if search_query:
             lat = final_data["latitude"]
             lon = final_data["longitude"]
             
-            # UPDATED URL: We now ask for 'snow_depth' and 'precipitation_sum' (past 24h)
+            # Get Weather Data
             w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,rain,wind_speed_10m,snow_depth&daily=precipitation_sum&timezone=auto&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch"
             
             w_res = requests.get(w_url).json()
             
-            # Parse Current Data
+            # Parse Data
             current = w_res['current']
             temp_val = current['temperature_2m']
             wind_val = current['wind_speed_10m']
             rain_val = current['rain']
             snow_depth = current['snow_depth'] # In meters
             
-            # Parse Past 24h Rain (Daily sum)
+            # Parse Past 24h Rain
             if 'daily' in w_res and 'precipitation_sum' in w_res['daily']:
-                # The first entry [0] is today's total forecast
                 past_rain = w_res['daily']['precipitation_sum'][0]
             
             api_success = True
@@ -68,12 +67,12 @@ if search_query:
     except Exception as e:
         st.error(f"⚠️ Connection Error: {e}")
 
-# --- 3. AUTO-CALCULATE GROUND CONDITIONS ---
-# This is the "Brain" that decides the status automatically
+# --- 3. AUTO-CALCULATE CONDITIONS ---
 ground_status = "Unknown"
+leaf_alert = False
 
 if api_success:
-    # Convert snow depth from meters to inches for easier logic
+    # A. Check for Snow/Rain
     snow_inches = snow_depth * 39.37 
     
     if snow_inches > 0.5:
@@ -87,6 +86,12 @@ if api_success:
     else:
         ground_status = "Bone Dry ☀️"
 
+    # B. Check for LEAF SEASON (Auto-Date Check)
+    current_month = datetime.now().month
+    # If it is Oct (10), Nov (11), or Dec (12)
+    if current_month in [10, 11, 12]:
+        leaf_alert = True
+
 # --- 4. DASHBOARD ---
 if api_success:
     st.divider()
@@ -98,7 +103,11 @@ if api_success:
     col3.metric("🌧️ Rain (24h)", f"{past_rain}\"")
     col4.metric("🏔️ Snow", f"{round(snow_inches, 1)}\"")
 
-    st.info(f"🚜 **Auto-Detected Ground Condition:** {ground_status}")
+    # Display Auto-Detected Conditions
+    st.info(f"🚜 **Ground Condition:** {ground_status}")
+    
+    if leaf_alert:
+        st.warning("🍂 **SEASONAL ALERT:** High probability of heavy leaf fall detected.")
 
 # --- 5. LOGIC ENGINE ---
 if api_success: 
@@ -108,9 +117,9 @@ if api_success:
     # 1. Snow Check
     if "Snow" in ground_status:
         status = "NO GO"
-        reasons.append(f"⛔ SNOW: {round(snow_inches, 1)} inches detected. Plowing Ops only.")
+        reasons.append(f"⛔ SNOW: {round(snow_inches, 1)} inches. Plowing Ops only.")
 
-    # 2. Temperature Check
+    # 2. Temperature
     if temp_val > 88:
         status = "NO GO"
         reasons.append("⛔ HEAT: Too hot (>88°F).")
@@ -118,21 +127,27 @@ if api_success:
         status = "CAUTION"
         reasons.append("⚠️ COLD: Grass dormant (<45°F).")
 
-    # 3. Wind Check
+    # 3. Wind
     if wind_val > 20:
         status = "NO GO"
         reasons.append("⛔ WIND: Debris risk (>20mph).")
 
-    # 4. Moisture Check
+    # 4. Moisture
     if "Raining" in ground_status:
         status = "NO GO"
         reasons.append("⛔ ACTIVE RAIN: Precipitation detected.")
     elif "Soaked" in ground_status:
         status = "NO GO"
-        reasons.append(f"⛔ MUD: Heavy rain ({past_rain}\") detected in last 24h.")
+        reasons.append(f"⛔ MUD: Heavy rain ({past_rain}\") in last 24h.")
     elif "Damp" in ground_status:
         status = "CAUTION"
         reasons.append("⚠️ MOISTURE: Ground is damp. Check for clumping.")
+
+    # 5. Leaf Logic (The New Feature)
+    if leaf_alert and status != "NO GO":
+        # If we are good to go, but it's leaf season, downgrade to CAUTION
+        status = "CAUTION"
+        reasons.append("🍂 LEAVES: Visibility of roots/rocks reduced. Proceed with caution.")
 
     # --- 6. VERDICT ---
     st.subheader("MISSION STATUS:")
@@ -140,9 +155,12 @@ if api_success:
         st.success("## 🟢 GREEN LIGHT")
         st.markdown("**Conditions Optimal. Start Engines.**")
         if st.button("🚜 MOW"): st.balloons()
+        
     elif status == "CAUTION":
         st.warning("## 🟡 CAUTION")
+        st.markdown("**Proceed with care:**")
         for r in reasons: st.write(r)
+        
     else:
         st.error("## 🔴 NO GO")
         for r in reasons: st.write(r)
