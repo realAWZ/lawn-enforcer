@@ -9,21 +9,20 @@ st.markdown("### 🌎 Global Weather Command")
 
 # --- 1. SETUP DEFAULTS ---
 api_success = False
-temp_val, wind_val, rain_val = 75, 5, 0.0
+temp_val, wind_val, rain_val = 32, 5, 0.0 # Default to freezing for safety
 
 # --- 2. SMART LOCATION SEARCH ---
-st.info("🔎 Search by **City Name** (e.g., Newton) or **Zip Code** (e.g., 07860)")
+st.info("🔎 Search by **City Name** (e.g., Newton) or **Zip Code**")
 search_query = st.text_input("Enter Patrol Sector:", value="Newton")
 
 if search_query:
     try:
-        # Step A: Search for *multiple* cities (Count=10)
+        # Step A: Search for multiple cities
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={search_query}&count=10&language=en&format=json"
         geo_res = requests.get(geo_url).json()
         
         if "results" in geo_res:
-            # Step B: Create a "Pick List" for the user
-            # We assume 'admin1' is the State/Province
+            # Step B: Create a "Pick List"
             city_options = {}
             display_list = []
             
@@ -31,24 +30,19 @@ if search_query:
                 city_name = result.get("name", "Unknown")
                 state = result.get("admin1", "")
                 country = result.get("country_code", "")
-                
-                # Make a label like: "Newton, New Jersey (US)"
                 label = f"{city_name}, {state} ({country})"
                 
-                # Store the data so we can look it up later
                 city_options[label] = result
                 display_list.append(label)
             
             # Step C: The Dropdown Menu
             selected_label = st.selectbox("📍 Confirm Specific Sector:", display_list)
             
-            # Step D: Get Data for the SELECTED city
+            # Step D: Get Data
             final_data = city_options[selected_label]
             lat = final_data["latitude"]
             lon = final_data["longitude"]
-            town_name = final_data["name"]
             
-            # Get Weather
             w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,rain,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph"
             w_res = requests.get(w_url).json()
             
@@ -78,24 +72,37 @@ if api_success:
 # --- 4. MANUAL OVERRIDES ---
 st.divider()
 st.caption("🚜 **Ground Conditions** (Visual Confirm)")
-grass_status = st.radio("How is the grass?", ["Bone Dry", "Morning Dew", "Soaked / Wet"], horizontal=True)
+
+# UPDATED: Added "Snow Covered" option
+grass_status = st.radio("How is the grass?", 
+    ["Bone Dry", "Morning Dew", "Soaked / Wet", "Snow Covered ❄️"], 
+    horizontal=True)
 
 # --- 5. LOGIC ENGINE ---
 if api_success: 
     status = "GO"
     reasons = []
 
-    if temp_val > 88:
+    # Snow Logic (Immediate No Go)
+    if grass_status == "Snow Covered ❄️":
+        status = "NO GO"
+        reasons.append("⛔ SNOW: Mowing Prohibited. Switch to Plowing Ops.")
+    
+    # Temperature Logic
+    elif temp_val > 88:
         status = "NO GO"
         reasons.append("⛔ HEAT: Too hot (>88°F).")
-    elif temp_val < 50:
+    elif temp_val < 45:
+        # Lowered slightly for winter/fall cleanups
         status = "CAUTION"
-        reasons.append("⚠️ COLD: Grass tearing risk (<50°F).")
+        reasons.append("⚠️ COLD: Grass dormant or brittle (<45°F).")
 
+    # Wind Logic
     if wind_val > 20:
         status = "NO GO"
         reasons.append("⛔ WIND: Debris risk (>20mph).")
 
+    # Moisture Logic
     if rain_val > 0.1 or grass_status == "Soaked / Wet":
         status = "NO GO"
         reasons.append("⛔ MOISTURE: Rain/Wet Ground.")
