@@ -68,7 +68,7 @@ if search_query:
             if 'current' in p_res:
                 p_data = p_res['current']
                 
-                # We extract all values, but convert 'None' to 0
+                # Extract all values, convert None to 0
                 raw_values = [
                     p_data.get('alder_pollen'),
                     p_data.get('birch_pollen'),
@@ -77,10 +77,7 @@ if search_query:
                     p_data.get('mugwort_pollen'),
                     p_data.get('olive_pollen')
                 ]
-                # Filter out None values so the app doesn't crash
                 clean_values = [v for v in raw_values if v is not None]
-                
-                # Find the maximum pollen count today
                 max_pollen_val = max(clean_values) if clean_values else 0
 
             api_success = True
@@ -110,7 +107,7 @@ if api_success:
     else:
         ground_status = "Bone Dry ☀️"
 
-    # B. Leaf Status (Tiered)
+    # B. Leaf Status
     current_month = datetime.now().month
     if current_month in [10, 11]:
         leaf_status = "Season"
@@ -118,46 +115,48 @@ if api_success:
             leaf_status = "Active Fall"
 
     # C. Pollen Status
-    if max_pollen_val > 50: # Threshold for "Moderate/High"
+    if max_pollen_val > 50: 
         pollen_alert = True
         pollen_status = "HIGH 🔴"
     elif max_pollen_val > 20:
         pollen_status = "Medium 🟡"
-    else:
-        pollen_status = "Low 🟢"
 
 # --- 4. DASHBOARD ---
 if api_success:
     st.divider()
     st.markdown(f"**Sector Status: {selected_label}**")
     
-    col1, col2, col3, col4 = st.columns(4)
+    # Standard Dashboard (Only 3 Items Now)
+    col1, col2, col3 = st.columns(3)
     col1.metric("🌡️ Temp", f"{temp_val}°F")
     col2.metric("🌬️ Wind", f"{wind_val} mph")
     col3.metric("🌧️ Rain (24h)", f"{past_rain}\"")
-    col4.metric("🦠 Pollen", f"{pollen_status}")
 
     st.info(f"🚜 **Ground Condition:** {ground_status}")
     
+    # --- ALERTS SECTION (Only shows if triggered) ---
+    
+    # 1. Leaf Alert
     if leaf_status == "Active Fall":
          st.warning("🍂 **SATELLITE ALERT:** High winds detected. Active leaf fall.")
     elif leaf_status == "Season":
          st.caption("🍂 **SEASONAL:** Leaf season. Watch for hidden rocks.")
          
+    # 2. Pollen Alert (Hidden unless dangerous)
     if pollen_alert:
-        st.warning("😷 **BIOHAZARD:** High Pollen Count detected.")
+        st.warning(f"😷 **BIOHAZARD:** High Pollen Count ({max_pollen_val}). Wear N95 Mask.")
 
 # --- 5. LOGIC ENGINE ---
 if api_success: 
     status = "GO"
     reasons = []
 
-    # 1. Snow Check
+    # 1. Snow
     if "Snow" in ground_status:
         status = "NO GO"
         reasons.append(f"⛔ SNOW: {round(snow_inches, 1)} inches. Plowing Ops only.")
 
-    # 2. Temperature
+    # 2. Temp
     if temp_val > 88:
         status = "NO GO"
         reasons.append("⛔ HEAT: Too hot (>88°F).")
@@ -181,7 +180,7 @@ if api_success:
         status = "CAUTION"
         reasons.append("⚠️ MOISTURE: Ground is damp. Check for clumping.")
 
-    # 5. Leaf Logic
+    # 5. Leaves
     if status != "NO GO":
         if leaf_status == "Active Fall":
             status = "CAUTION"
@@ -190,10 +189,10 @@ if api_success:
             status = "CAUTION"
             reasons.append("🍂 LEAF SEASON: Watch for hidden rocks/roots.")
 
-    # 6. Pollen Logic
+    # 6. Pollen
     if status != "NO GO" and pollen_alert:
         status = "CAUTION"
-        reasons.append("😷 POLLEN: High count detected. N95 Mask or Eye Protection recommended.")
+        reasons.append("😷 POLLEN: High count detected. N95 Mask recommended.")
 
     # --- 6. VERDICT ---
     st.subheader("MISSION STATUS:")
