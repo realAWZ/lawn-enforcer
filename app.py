@@ -76,4 +76,4 @@ if api_success or city: # Only run logic if we have data
         reasons.append("⛔ MOISTURE: Rain/Wet Ground.")
     elif grass_status == "Morning Dew":
         status = "CAUTION"
-        reasons.append("⚠️ DEW: Wait
+        reasons.append("⚠️ DEW: Wait 60 minutes.")
