@@ -64,18 +64,24 @@ if search_query:
             if 'daily' in w_res and 'precipitation_sum' in w_res['daily']:
                 past_rain = w_res['daily']['precipitation_sum'][0]
 
-            # Parse Pollen (Find the highest offender)
+            # Parse Pollen (With Safety Filter)
             if 'current' in p_res:
                 p_data = p_res['current']
-                # Get all pollen types
-                pollens = [
-                    p_data.get('alder_pollen', 0),
-                    p_data.get('birch_pollen', 0),
-                    p_data.get('grass_pollen', 0),
-                    p_data.get('ragweed_pollen', 0)
+                
+                # We extract all values, but convert 'None' to 0
+                raw_values = [
+                    p_data.get('alder_pollen'),
+                    p_data.get('birch_pollen'),
+                    p_data.get('grass_pollen'),
+                    p_data.get('ragweed_pollen'),
+                    p_data.get('mugwort_pollen'),
+                    p_data.get('olive_pollen')
                 ]
+                # Filter out None values so the app doesn't crash
+                clean_values = [v for v in raw_values if v is not None]
+                
                 # Find the maximum pollen count today
-                max_pollen_val = max(pollens) if pollens else 0
+                max_pollen_val = max(clean_values) if clean_values else 0
 
             api_success = True
             
@@ -184,7 +190,7 @@ if api_success:
             status = "CAUTION"
             reasons.append("🍂 LEAF SEASON: Watch for hidden rocks/roots.")
 
-    # 6. Pollen Logic (New)
+    # 6. Pollen Logic
     if status != "NO GO" and pollen_alert:
         status = "CAUTION"
         reasons.append("😷 POLLEN: High count detected. N95 Mask or Eye Protection recommended.")
